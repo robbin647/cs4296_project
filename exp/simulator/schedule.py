@@ -5,6 +5,10 @@ import numpy as np
 from .utils import mb, gb
 from .utils import timed
 
+DEBUG_OUTDIR="/home/tianxia/depsched"
+import os
+import pdb
+import pickle
 """
 Schedule a request on a given set of nodes
 
@@ -66,16 +70,32 @@ class Scheduler():
             return self.kube_schedule(req, nodes, lb_ratio=lb_ratio)
         elif sched == "monkey":
             return self.monkey_schedule(req, nodes)
+        elif sched == "req-cluster":
+            return self.req_cluster_schedule(req, nodes)
         else:
             print("--> error: unknown scheduling policy specified")
             sys.exit(1)
+    
+    # TODO: bootstrap this req clustering
+    def req_cluster_schedule(self, req, nodes):
+        # cluster all requests 
+        req = self.cluster_on_dep(req, similarity_threshold=0.4)
+        images = []
+        pass
 
-    def dep_schedule(self, req, nodes, lb_ratio=None):
+    def dep_schedule(self, req, nodes, lb_ratio=None): # lb_ratio: load balancing ratio
+        # np.savez(file=os.path.join(DEBUG_OUTDIR,"dep_schedule_input.npz"),req=np.array(req), nodes=np.array(nodes), lb_ratio=lb_ratio)
+        # with open(os.path.join(DEBUG_OUTDIR, "dep_schedule_nodes"), 'wb') as nodes_out:
+        #     pickle.dump(nodes, nodes_out)
+        # with open(os.path.join(DEBUG_OUTDIR, "dep_schedule_req"), 'wb') as req_out:
+        #     pickle.dump(req, req_out)
+        
+        
         max_score, selected = -1, -1
         images = req[0]
         for i in self.visit_sequence:
             node = nodes[i]
-            if self.node_conta_free(node) - len(images) < 0:
+            if self.node_conta_free(node) - len(images) < 0: # the node does not have enough unused container quotas
                 # if self.node_conta_free(node) > 0:
                     # print(self.node_conta_free(node), len(images))
                 if selected < 0:
@@ -91,23 +111,23 @@ class Scheduler():
 
             score = self.dep_score(images, node)
 
-            if lb_ratio is not None:
+            if lb_ratio is not None: # load balancing ratio
                 score_locality = self.scaled_score_locality(score)
-                score_lb = (node[5] - node[4])/node[5] * 10
+                score_lb = (node[5] - node[4])/node[5] * 10 # (MAX_NO_OF_CONTAINERS - NO_OF_RUNNING_CONTAINERS) / MAX_NO_OF_CONTAINERS * 10
                 score = lb_ratio * score_lb + (1 - lb_ratio) * score_locality
 
             if score > max_score:
                 max_score = score
                 selected = i
-        return selected
+        return selected # the index of the worker node with the largest score
 
     def scaled_score_locality(self, score):
-        if score > MAX_SUM_SIZE:
+        if score > MAX_SUM_SIZE: # MAX_SUM_SIZE=1*gb
             score = 10
-        elif score < MIN_SUM_SIZE:
+        elif score < MIN_SUM_SIZE: # MIN_SUM_SIZE=23*mb
             score = 0
         else:
-            score /= (MAX_SUM_SIZE - MIN_SUM_SIZE)
+            score /= (MAX_SUM_SIZE - MIN_SUM_SIZE) # the computed score must be within [0.023, 1.023]
         return score
 
     def dep_soft_schedule(self, req, nodes):
@@ -174,7 +194,7 @@ class Scheduler():
             node = nodes[i]
             if self.node_conta_free(node) - len(images) <= 0:
                 if selected < 0:
-                    selected = REJ_CONT_LIMIT
+                    selected = REJ_CONT_LIMIT # container limit 
                 continue
             total_size = sum([self.tr.image_size(i) for i in images])
             if total_size > self.real_free_size(node):
@@ -184,7 +204,7 @@ class Scheduler():
             selected = i
         return selected
 
-    def dep_score(self, images, node):
+    def dep_score(self, images, node): # images is the names of the images contained in the request, node is the node we want to calculate a score on 
         node_layers = node[1]
 
         score = 0
@@ -192,7 +212,7 @@ class Scheduler():
             req_layers = self.tr.layers_(i)
             for l in req_layers:
                 if l in node_layers:
-                    score += self.tr.layer_size(l)
+                    score += self.tr.layer_size(l) # add the size of the matched layer to the score
         return score
 
     def required_size(self, req, node, verbose=False):

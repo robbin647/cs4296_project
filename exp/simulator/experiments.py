@@ -36,13 +36,13 @@ default_params = {"sim_length": 1000,
                   "hot_duration": 20,
                   # sim_length is used to here to denote total number of requests
                   "rerun": False,
-                  "max_sim_duration": 10**5, 
+                  "max_sim_duration": 10**2, 
                   # scheduling policies
                   "policies": ["dep", "kube", "monkey"],
-                  "dep_th": 0.1,
+                  "dep_th": 0.1, # dependency threshold
                   # eviction
                   "evict": True,
-                  "evict_th": 0.1,
+                  "evict_th": 0.1, # image eviction threshold
                   "evict_policy": "dep-lfu",
                   "evict_dep": False,
                   # delay scheduling params

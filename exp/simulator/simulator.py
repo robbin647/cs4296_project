@@ -15,6 +15,7 @@ from .schedule import Scheduler
 from .telemetry import Telemetry
 from .trace import Tracer
 from .utils import gb, timed
+from .requestClusterSimulator import mySimulatorLoop
 import pdb
 """
 Orchestrate the simulation and manage the cluster states
@@ -99,9 +100,9 @@ class Simulator:
         if uniform and not zipf and not from_cache:
             image_list = self.tr.image_list_()
             while len(self.req_list) < num_req:
-                num_image_reg = random.randint(1, max_num_image)
+                num_image_reg = random.randint(1, max_num_image) # by default num_image_reg==1
                 self.req_list.append([random.sample(image_list, num_image_reg),
-                                      int(random.random() * cont_length + 1)])
+                                      int(random.random() * cont_length + 1)]) # by default cont_length==10
             r.set("req_list", pickle.dumps(self.req_list))
         # sample a set of images with weights/popularity as the requests
         elif not from_cache:
@@ -120,7 +121,7 @@ class Simulator:
             print("loading {} ".format(time.time() - start))
         # self.tr.analyze_req_list(self.req_list)
 
-        self.seed_pool = random.sample(list(range(num_req)) * 4, num_req)
+        self.seed_pool = random.sample(list(range(num_req)) * 4, num_req) # this attr is not used
 
         # print("--> debug: requests are: ", self.req_list)
         print("--> request queue init.")
@@ -163,7 +164,7 @@ class Simulator:
         node_images, node_layers, containers = node[0], node[1], node[6]
         req_images, duration = req[0], req[1]
 
-        req_layers = set()
+        req_layers = set() # dict{}
         for image in req_images:
             req_layers.update(self.tr.layers_(image))
 
@@ -351,6 +352,7 @@ class Simulator:
         quick_results = defaultdict(list)
 
         for policy in policies:
+
             # reset metric and counters
             self.ty.reset()
             total_lat, total_provision_lat, accept_req_num, req_seq_pos = 0, 0, 0, 0
@@ -367,6 +369,7 @@ class Simulator:
                 # if 0.5 * len(self.req_seq) < tick < len(self.req_seq):
                 #     self.ty.tel_node_snap(self.node_list, image=True)
 
+
                 if 0.0 * len(self.req_seq) < tick < len(self.req_seq):
                     node_heatings.append(self.node_heating_ratio())
                     # pdb.set_trace()
@@ -375,6 +378,7 @@ class Simulator:
                 self.update_nodes(sig, self.node_list, evict_policy=evict_policy, evict_th=self.evict_th)
 
                 sig, req_node_pairs = tick, []
+                # when the req_seq is exhausted, we end the simulation loop
                 if tick >= len(self.req_seq):
                     req_batch = []
                     if len(retry_queue) == 0:
@@ -392,6 +396,8 @@ class Simulator:
 
                 # scheduling loop
                 for submit_tick, req in req_batch:
+                    # pdb.set_trace()
+
                     # fast check if all nodes are full at the moment
                     if self.is_all_full(self.node_list):
                         retry_queue.append((submit_tick if submit_tick < sig else sig, req))
@@ -407,13 +413,13 @@ class Simulator:
 
                     node = self.node_list[node_index]
                     provision_lat = self.calc_latency(req, node)
-                    wait_time = (sig - submit_tick) * 1000
+                    wait_time = (sig - submit_tick) * 1000 # time elapsed (in milliseconds) since this ``req`` was submitted
 
                     # delay scheduling
                     if delay_sched and policy == "dep":
                         # if the "best" node found still yields too high startup latency, wait a bit
                         if provision_lat > provision_gap * (1 + wait_time) and wait_time <= delay * 1000:
-                            retry_queue.append((submit_tick if submit_tick < sig else sig, req))
+                            retry_queue.append((submit_tick if submit_tick < sig else sig, req)) # append a tuple: (min{submit_tick, sig}, req)
                             continue
                     # node placement
                     required_size = self.place_node(sig, req, node)
@@ -466,6 +472,7 @@ class Simulator:
             self.node_list = copy.deepcopy(node_list)
             self.ty.reduce_node_snap()
             print(np.percentile(node_heatings, 99))
+
         if len(policies) > 1:
             baseline = None
             for i, data in enumerate(quick_results["mean_startup_lat"]):
@@ -478,8 +485,8 @@ class Simulator:
     def sim(self, result_dir="./result/",
             precached=False, pinned=False, uniform=True,
             node_num=100, sim_length=100, req_rate=40,
-            store_size=3.2 * gb, cont_cap=20, evict=False,
-            cont_length=1000, dep_th=0.1, evict_th=0.1,
+            store_size=3.2 * gb, cont_cap=16, evict=False,
+            cont_length=10, dep_th=0.1, evict_th=0.1,
             evict_dep=False, rerun=False,
             cached_rank=10, delay_sched=False,
             delay=0, policies=["dep", "kube", "monkey"],
