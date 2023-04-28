@@ -13,7 +13,8 @@ _result_path = _dir_path + "/__plot__/__data__/"
 _raw_result_path = _dir_path + "/__result__/"
 _result_file = _result_path + "{exp_name}.csv"
 
-default_params = {"sim_length": 1000,
+default_params = {#"sim_length": 1000,
+                  "sim_length": 100,
                   "uniform": False,
                   "zipf": True,
                   "precached": False,
@@ -25,25 +26,27 @@ default_params = {"sim_length": 1000,
                   "store_size": 32 * gb,
                   "cont_cap": 16,
                   # request setup
-                  "cont_length": 10,
-                  "req_rate": 125,
+                  #"cont_length": 10,
+                  "cont_length": 5,
+                  "req_rate": 40,
                   ### CHANGED 2023-04-28 ####
                   #### Uncomment to go back
                   # "max_num_image": 1,
-                  "max_num_image": 1,
+                  "max_num_image": 3,
                   ###########
                   # container reuse
                   ### DEBUG 2023-04-24 ######
                   #### Uncomment to go back
                   #"reuse": False,
                   ##########
-                  "hot_duration": 20,
+                  #"hot_duration": 20,
+                  "hot_duration": 3,
                   # sim_length is used to here to denote total number of requests
                   "rerun": False,
-                  "max_sim_duration": 10**2, 
+                  "max_sim_duration": 100, 
                   # scheduling policies
                   # "policies": ["dep", "kube", "monkey", "req-cluster"],
-                  "policies": ["req-cluster"],
+                  "policies": ["dep", "monkey", "kube", "req-cluster"],
                   "dep_th": 0.1, # dependency threshold
                   # eviction
                   "evict": True,

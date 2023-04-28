@@ -6,7 +6,6 @@ from pymongo import MongoClient
 
 from .__cred__.cred import MONGO_USER, MONGO_PASSWD
 from .utils import cmd, dir_path
-print(MONGO_USER, MONGO_PASSWD)
 
 IMAGE_DB_PATH = "/data"
 IMAGE_DB_NAME = "/depsched_db"

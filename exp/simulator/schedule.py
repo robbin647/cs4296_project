@@ -47,7 +47,7 @@ class Scheduler():
         print("--> new scheduler init.")
 
     # @timed
-    def schedule(self, req, nodes, sched="dep", lb_ratio=None):
+    def schedule(self, req, nodes, sched="dep", lb_ratio=None,**other_args):
         """
         scheduling policies:
             dep: select the highest dependency score
@@ -62,7 +62,7 @@ class Scheduler():
         # print(self.visit_sequence)
         # random.shuffle(nodes)
 
-        if sched == "dep" or "req-cluster":
+        if sched == "dep":
             return self.dep_schedule(req, nodes, lb_ratio=lb_ratio)
         elif sched == "dep-soft":
             return self.dep_soft_schedule(req, nodes)
@@ -70,15 +70,17 @@ class Scheduler():
             return self.kube_schedule(req, nodes, lb_ratio=lb_ratio)
         elif sched == "monkey":
             return self.monkey_schedule(req, nodes)
-        elif sched == "compromising-dep":
-            return self.compromising_dep_schedule(req, nodes)
+        elif sched == "req-cluster":
+            return self.agile_dep_schedule(req, nodes, **other_args)
         else:
             print("--> error: unknown scheduling policy specified")
             sys.exit(1)
     
     # TODO: bootstrap this req clustering
-    def compromising_dep_schedule(self, req, nodes, dep_score_threshold=35000): ## hard coded dep_score_threshold. Make a better choice!
-        candidate_node = -1
+    def agile_dep_schedule(self, req, nodes, scheduler_param): ## hard coded dep_score_threshold. Make a better choice!
+        dep_score_threshold = scheduler_param["dep_score_threshold"][-1]
+        selected = -1
+        baseline_choices = []
         images = req[0]
         for i in self.visit_sequence:
             node = nodes[i]
@@ -93,11 +95,18 @@ class Scheduler():
                 if selected < 0:
                     selected = REJ_STORE_LIMIT
                 continue
+            
+            # save this node to the pool (to be used by baseline random policy)
+            baseline_choices.append(i)
 
             score = self.dep_score(images, node)
             if score >= dep_score_threshold:
-                candidate_node = i
-        return candidate_node
+                selected = i
+                return selected
+        # capture the case when all nodes are unavilable (either REJ_CONT_LIMIT or REJ_STORE_LIMIT)
+        if selected != -1: 
+            return selected 
+        return random.choice(baseline_choices)
 
     def dep_schedule(self, req, nodes, lb_ratio=None): # lb_ratio: load balancing ratio
         # np.savez(file=os.path.join(DEBUG_OUTDIR,"dep_schedule_input.npz"),req=np.array(req), nodes=np.array(nodes), lb_ratio=lb_ratio)

@@ -336,6 +336,7 @@ class Simulator:
         max_load = np.max(node_load)
         return max_load/avg_load
     
+    # @timed
     def request_clustering(self, req_batch, TOP_LAYER_RATIO=0.3):
         '''
         Perform clustering on requests. Requests are first projected onto a layer feature vector (c.f. term frequency analysis in document ranking).
@@ -382,6 +383,7 @@ class Simulator:
         # step 5: call the DBSCAN algorithm on ``projections`` to generate cluster labels
         dbscan = DBSCAN(eps=0.382*len(feature_base), min_samples=min([len(feature_base), 5]), metric="l1")
         cluster_labels = dbscan.fit_predict(projections)
+        del dbscan, all_layer_counts
         cluster_labels[cluster_labels == -1] = max(cluster_labels) + 1 # replace the default "-1" label assigned by DBSCAN with a reasonable label
         # step 6: sort the requests in ``req_batch`` by their cluster labels s.t. requests from the same cluster are put together
         aux_list = [(i, cluster_labels[i]) for i in range(cluster_labels.size)] # use an auxiliary list to help sorting
@@ -415,6 +417,10 @@ class Simulator:
             evict_policy = evict_policy if policy == "dep" else "kube"
             retry_queue = []
             node_heatings = []
+            if policy == "req-cluster":
+                agile_dep_scheduler_param = {
+                            "dep_score_threshold": [100 * 1.024 * pow(10,6), ] # start with 100 MB
+                            }
 
             # simulation loop
             for tick in range(max_sim_duration):
@@ -463,13 +469,22 @@ class Simulator:
                         continue
 
                     # scheduler finds the node to place the request, -1 if failed
-                    node_index = self.sched.schedule(req, self.node_list,
+                    if policy == "req-cluster":
+                        node_index = self.sched.schedule(req, self.node_list, policy, lb_ratio, scheduler_param=agile_dep_scheduler_param)
+                    else: 
+                        node_index = self.sched.schedule(req, self.node_list,
                                                      policy, lb_ratio=lb_ratio)
                     if node_index < 0:
                         self.ty.report_rej(node_index)
                         retry_queue.append((submit_tick if submit_tick < sig else sig, req))
+                        # for req-cluster scheduling: On failure to allocate a node, do multiplicative decrease 
+                        if policy == "req-cluster":
+                            agile_dep_scheduler_param["dep_score_threshold"].append(agile_dep_scheduler_param["dep_score_threshold"][-1] / 2)
                         continue
-
+                    
+                    # for req-cluster scheduling: On successful allocation of node, increase the threshold by 10 MB
+                    if policy == "req-cluster":
+                        agile_dep_scheduler_param["dep_score_threshold"].append(agile_dep_scheduler_param["dep_score_threshold"][-1] + 100 * 1.024 * pow(10,6))
                     node = self.node_list[node_index]
                     provision_lat = self.calc_latency(req, node)
                     wait_time = (sig - submit_tick) * 1000 # time elapsed (in milliseconds) since this ``req`` was submitted
@@ -530,7 +545,7 @@ class Simulator:
             # reset the internal node_list
             self.node_list = copy.deepcopy(node_list)
             self.ty.reduce_node_snap()
-            print(np.percentile(node_heatings, 99))
+            print("99th Percentile Node Overload Ratio: ", np.percentile(node_heatings, 99))
 
         if len(policies) > 1:
             baseline = None
