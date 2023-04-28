@@ -1,5 +1,5 @@
 # Clustering Trick on Handling User Requests in Cloud Computing
-## CS4296 Group Porject
+## CS4296 Group Project
 
 ## Our artifact
 
