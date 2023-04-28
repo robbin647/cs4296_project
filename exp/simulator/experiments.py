@@ -27,7 +27,11 @@ default_params = {"sim_length": 1000,
                   # request setup
                   "cont_length": 10,
                   "req_rate": 125,
+                  ### CHANGED 2023-04-28 ####
+                  #### Uncomment to go back
+                  # "max_num_image": 1,
                   "max_num_image": 1,
+                  ###########
                   # container reuse
                   ### DEBUG 2023-04-24 ######
                   #### Uncomment to go back
@@ -38,7 +42,8 @@ default_params = {"sim_length": 1000,
                   "rerun": False,
                   "max_sim_duration": 10**2, 
                   # scheduling policies
-                  "policies": ["dep", "kube", "monkey"],
+                  # "policies": ["dep", "kube", "monkey", "req-cluster"],
+                  "policies": ["req-cluster"],
                   "dep_th": 0.1, # dependency threshold
                   # eviction
                   "evict": True,

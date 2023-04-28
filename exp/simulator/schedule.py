@@ -62,7 +62,7 @@ class Scheduler():
         # print(self.visit_sequence)
         # random.shuffle(nodes)
 
-        if sched == "dep":
+        if sched == "dep" or "req-cluster":
             return self.dep_schedule(req, nodes, lb_ratio=lb_ratio)
         elif sched == "dep-soft":
             return self.dep_soft_schedule(req, nodes)
@@ -70,18 +70,34 @@ class Scheduler():
             return self.kube_schedule(req, nodes, lb_ratio=lb_ratio)
         elif sched == "monkey":
             return self.monkey_schedule(req, nodes)
-        elif sched == "req-cluster":
-            return self.req_cluster_schedule(req, nodes)
+        elif sched == "compromising-dep":
+            return self.compromising_dep_schedule(req, nodes)
         else:
             print("--> error: unknown scheduling policy specified")
             sys.exit(1)
     
     # TODO: bootstrap this req clustering
-    def req_cluster_schedule(self, req, nodes):
-        # cluster all requests 
-        req = self.cluster_on_dep(req, similarity_threshold=0.4)
-        images = []
-        pass
+    def compromising_dep_schedule(self, req, nodes, dep_score_threshold=35000): ## hard coded dep_score_threshold. Make a better choice!
+        candidate_node = -1
+        images = req[0]
+        for i in self.visit_sequence:
+            node = nodes[i]
+            if self.node_conta_free(node) - len(images) < 0: # the node does not have enough unused container quotas
+                if selected < 0:
+                    selected = REJ_CONT_LIMIT
+                continue
+            total_size = sum([self.tr.image_size(i) for i in images])
+
+            # note that here we assume the scheduler knows whether the node is able to free enough space
+            if total_size > self.real_free_size(node):
+                if selected < 0:
+                    selected = REJ_STORE_LIMIT
+                continue
+
+            score = self.dep_score(images, node)
+            if score >= dep_score_threshold:
+                candidate_node = i
+        return candidate_node
 
     def dep_schedule(self, req, nodes, lb_ratio=None): # lb_ratio: load balancing ratio
         # np.savez(file=os.path.join(DEBUG_OUTDIR,"dep_schedule_input.npz"),req=np.array(req), nodes=np.array(nodes), lb_ratio=lb_ratio)
@@ -90,7 +106,7 @@ class Scheduler():
         # with open(os.path.join(DEBUG_OUTDIR, "dep_schedule_req"), 'wb') as req_out:
         #     pickle.dump(req, req_out)
         
-        
+
         max_score, selected = -1, -1
         images = req[0]
         for i in self.visit_sequence:

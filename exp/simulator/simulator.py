@@ -333,6 +333,54 @@ class Simulator:
             avg_load = 1
         max_load = np.max(node_load)
         return max_load/avg_load
+    
+    def request_clustering(self, req_batch, JACCARD_SIMILARITY_THRESHOLD=0.3):
+        '''
+        perform layer-wise clustering on requests. Requests are clustered based on Jaccard Similarity of their dependent layers
+
+        Input Parameter
+        ----------------
+        req_batch: list{ (tick: int, ( images: list{str},  duration: int ) ) }
+            Input batch of requests whose ``tick`` is same to the current tick in the simulation loop
+        '''
+        def jaccard_similarity(setA, setB):
+            return len(setA & setB) / len(setA | setB)
+        requests = [_r[1] for _r in req_batch]
+        list_of_layers = [] # to be used to store the set of layers required by each request in ``requests``
+        flags = [0 for i in range(len(requests))] # each boolean flag is for a request. 0 means not grouped, 1 means it is already in a group
+        for req in requests:
+            images = req[0]
+            layers = set()
+            for _i in images:
+                layers = layers | set(self.tr.layers_(_i)) # union
+            list_of_layers.append(layers)
+
+        
+        # pick request in ``requests`` one by one, compare it to the rest of requests and see if we can group some of them
+        ptr = 0
+        results = []
+        while ptr < len(requests):
+            if flags[ptr] == 1:
+                ptr += 1
+                continue
+            results.append( (req_batch[ptr][0], requests[ptr]) )
+            this_set_of_layers = list_of_layers[ptr]
+            for i in range(ptr+1, len(requests)):
+                try:
+                    if flags[i] == 0 and jaccard_similarity(this_set_of_layers, list_of_layers[i]) >= JACCARD_SIMILARITY_THRESHOLD:
+                        results.append( (req_batch[i][0], requests[i]) )
+                        flags[i] = 1
+                except ZeroDivisionError:
+                    pdb.set_trace()
+            flags[ptr] = 1
+            ptr += 1
+        # finally, the ``results`` is an array of clustered requests listed in sequential order
+        # we need to convert ``results`` to ``req_batch`` format
+        # req_batch_after_clustering = [(req_batch[0][0],
+        #             req) for req in results
+        #         ]
+        return results
+
 
     def _sim(self, *, max_sim_duration=10 ** 10,
              delay_sched=False, delay=0, provision_gap=5,
@@ -344,8 +392,6 @@ class Simulator:
              ):
         # save a deep copy of the node list
         node_list = copy.deepcopy(self.node_list)
-
-        
 
         # store the results of interests such that the experiments can
         # conveniently obtain the them after a single run
@@ -393,6 +439,9 @@ class Simulator:
                 # print(len(retry_queue))
                 req_batch = retry_queue + req_batch
                 retry_queue = []
+
+                if policy == "req-cluster":
+                    req_batch = self.request_clustering(req_batch)
 
                 # scheduling loop
                 for submit_tick, req in req_batch:
