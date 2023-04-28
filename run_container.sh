@@ -1,4 +1,7 @@
-#!/usr/bin/bash
+# Note: This script lists the commands to run the container
+#       In short, you should run the first group of commands on your computer,
+#       and run the second and thrid group of commands inside the container.
+#
 
 # on your computer: pull the image and start the container
 docker pull robbinyang/container-scheduling:v2
