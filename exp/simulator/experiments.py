@@ -61,6 +61,8 @@ default_params = {"sim_length": 1000,
                   #### Uncomment to go back
                   #"num_puller": 1,
                   #########
+                  # request clustering 
+                  "CLUSTERING_TOP_LAYER_RATIO": 0.3,
                   }
 
 

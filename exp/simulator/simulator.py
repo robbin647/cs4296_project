@@ -5,11 +5,13 @@ from __future__ import print_function
 import copy
 import random
 import time
+import math
 import redis, pickle
+import numpy as np
+
 from bisect import bisect
 from collections import defaultdict
-
-import numpy as np
+from sklearn.cluster import DBSCAN
 
 from .schedule import Scheduler
 from .telemetry import Telemetry
@@ -334,53 +336,60 @@ class Simulator:
         max_load = np.max(node_load)
         return max_load/avg_load
     
-    def request_clustering(self, req_batch, JACCARD_SIMILARITY_THRESHOLD=0.3):
+    def request_clustering(self, req_batch, TOP_LAYER_RATIO=0.3):
         '''
-        perform layer-wise clustering on requests. Requests are clustered based on Jaccard Similarity of their dependent layers
+        Perform clustering on requests. Requests are first projected onto a layer feature vector (c.f. term frequency analysis in document ranking).
+          The projections are then used to do clustering on requests by leveraging the DBSCAN algorithm.
 
         Input Parameter
         ----------------
         req_batch: list{ (tick: int, ( images: list{str},  duration: int ) ) }
             Input batch of requests whose ``tick`` is same to the current tick in the simulation loop
-        '''
-        def jaccard_similarity(setA, setB):
-            return len(setA & setB) / len(setA | setB)
-        requests = [_r[1] for _r in req_batch]
-        list_of_layers = [] # to be used to store the set of layers required by each request in ``requests``
-        flags = [0 for i in range(len(requests))] # each boolean flag is for a request. 0 means not grouped, 1 means it is already in a group
-        for req in requests:
-            images = req[0]
-            layers = set()
-            for _i in images:
-                layers = layers | set(self.tr.layers_(_i)) # union
-            list_of_layers.append(layers)
-
         
-        # pick request in ``requests`` one by one, compare it to the rest of requests and see if we can group some of them
-        ptr = 0
-        results = []
-        while ptr < len(requests):
-            if flags[ptr] == 1:
-                ptr += 1
-                continue
-            results.append( (req_batch[ptr][0], requests[ptr]) )
-            this_set_of_layers = list_of_layers[ptr]
-            for i in range(ptr+1, len(requests)):
-                try:
-                    if flags[i] == 0 and jaccard_similarity(this_set_of_layers, list_of_layers[i]) >= JACCARD_SIMILARITY_THRESHOLD:
-                        results.append( (req_batch[i][0], requests[i]) )
-                        flags[i] = 1
-                except ZeroDivisionError:
-                    pdb.set_trace()
-            flags[ptr] = 1
-            ptr += 1
-        # finally, the ``results`` is an array of clustered requests listed in sequential order
-        # we need to convert ``results`` to ``req_batch`` format
-        # req_batch_after_clustering = [(req_batch[0][0],
-        #             req) for req in results
-        #         ]
-        return results
-
+        Return
+        ---------------
+        req_batch_after_clustering: list
+            The ``req_batch`` in which each request is rearranged s.t. requests belonging to the same cluster are put together
+        '''
+        # step 1: compute the occurrence of each distinct layer among all layers
+        all_layer_counts = defaultdict(lambda: 0)
+        for _req in req_batch: # we only want to get the list of layers from each request
+            _req_images = _req[1][0]
+            for _img in _req_images:
+                for _layer in self.tr.layers_(_img):
+                    all_layer_counts[_layer] += 1
+        # step 2: sort an array of layers from the highest occurrence to the lowest occurrence
+        layer_array = [(_layer, all_layer_counts[_layer]) for _, _layer in enumerate(all_layer_counts)]
+        layer_array.sort(key=lambda x: x[1], reverse=True)
+        # step 3: only take K top occurring layers to construct the base vector.  K = math.floor(``TOP_LAYER_RATIO`` * Total no. of layers)
+        feature_base =  [x[0] for x in layer_array[ :math.floor(len(layer_array) * TOP_LAYER_RATIO)]]
+        # step 4: project the layer profile of each request onto the ``feature_base``. For an arbitrary request,
+        #   if it contains layer X and that layer X appears in ``feature_base`` then the projection will mark 1 at the position
+        #   where layer X appears in ``feature_base``
+        projections = []
+        for _req in req_batch:
+            _proj = np.zeros(len(feature_base), dtype=np.int8)
+            set_of_layer = set()
+            _req_images = _req[1][0]
+            for _img in _req_images:
+                _layers = self.tr.layers_(_img)
+                set_of_layer = set_of_layer | set(_layers)
+            for i in range(_proj.shape[0]):
+                if feature_base[i] in set_of_layer:
+                    _proj[i] = 1
+            projections.append(_proj)
+        projections = np.array(projections)
+        # step 5: call the DBSCAN algorithm on ``projections`` to generate cluster labels
+        dbscan = DBSCAN(eps=0.382*len(feature_base), min_samples=min([len(feature_base), 5]), metric="l1")
+        cluster_labels = dbscan.fit_predict(projections)
+        cluster_labels[cluster_labels == -1] = max(cluster_labels) + 1 # replace the default "-1" label assigned by DBSCAN with a reasonable label
+        # step 6: sort the requests in ``req_batch`` by their cluster labels s.t. requests from the same cluster are put together
+        aux_list = [(i, cluster_labels[i]) for i in range(cluster_labels.size)] # use an auxiliary list to help sorting
+        aux_list.sort(key=lambda x:x[1]) # sort by cluster labels
+        # finally, obtain a "clustered" req_batch
+        req_batch_after_clustering = [req_batch[i] for i, _ in aux_list ]
+        return req_batch_after_clustering
+        
 
     def _sim(self, *, max_sim_duration=10 ** 10,
              delay_sched=False, delay=0, provision_gap=5,
@@ -388,6 +397,7 @@ class Simulator:
              evict_policy="dep-lru",
              evict_th=0.1,
              lb_ratio=None,
+             CLUSTERING_TOP_LAYER_RATIO=0.3,
              hot_duration=0,
              ):
         # save a deep copy of the node list
@@ -441,7 +451,7 @@ class Simulator:
                 retry_queue = []
 
                 if policy == "req-cluster":
-                    req_batch = self.request_clustering(req_batch)
+                    req_batch = self.request_clustering(req_batch, TOP_LAYER_RATIO=CLUSTERING_TOP_LAYER_RATIO)
 
                 # scheduling loop
                 for submit_tick, req in req_batch:
