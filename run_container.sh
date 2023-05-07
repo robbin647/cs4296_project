@@ -5,13 +5,18 @@
 
 # on your computer: pull the image and start the container
 docker pull robbinyang/container-scheduling:v2
-docker run --name cs4296_serverless -it -d --previleged=true robbinyang/container-scheduling:v1 /sbin/init
+docker run --name cs4296_serverless -it -d --privileged=true robbinyang/container-scheduling:v2 /sbin/init
 docker exec -it cs4296_serverless /bin/bash
 
 # inside the container: update source code
+su - tianxia
 cd /home/tianxia/depsched
 git remote add github https://github.com/robbin647/cs4296_project.git
 git pull github main
+if [ ! $(id -u) = "0" ]; then
+  echo "Help you change back to root before running the simulation";
+  exit;
+fi
 
 # inside the container: run simulation
 /home/tianxia/run_simulator.sh 
