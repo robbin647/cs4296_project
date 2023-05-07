@@ -35,7 +35,7 @@ for timestamp, lat_files in latency_data.items():
             data.sort()
 
             # remove elements larger than 100s
-            data = data[data < 100]
+            data = data[data < 60]
             bins_transform = make_interp_spline(np.arange(len(data)), data)
             bins = np.linspace(0, len(data), 100000)
             data = bins_transform(bins)
@@ -43,9 +43,12 @@ for timestamp, lat_files in latency_data.items():
             bins_table.append(bins)
 
     for i in range(len(latency_table)):
-        ax.hist(latency_table[i], bins=bins_table[i], density=True, histtype="step", cumulative=True, label=lat_files[i].split("_")[2])
+        n,bins,patches = ax.hist(latency_table[i], bins=bins_table[i], density=True, histtype="step", cumulative=True, label=lat_files[i].split("_")[2])
     ax.grid(True)
     ax.legend(loc="lower right")
     ax.set_xlabel("Latency (s)")
     ax.set_ylabel("CDF")
-    plt.show()
+    os.chdir(absdirname)
+    out_file = f"cdf_{timestamp}.pdf"
+    plt.savefig(out_file, format="pdf")
+    print(f"CDF plot saved to {out_file}")
